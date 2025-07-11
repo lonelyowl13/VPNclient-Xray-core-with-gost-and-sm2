@@ -2,7 +2,6 @@ package tls
 
 import (
 	"context"
-	"crypto/x509"
 	"encoding/json"
 	"os"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/xtls/xray-core/common/task"
 	"github.com/xtls/xray-core/main/commands/base"
 	sm2x509 "github.com/tjfoc/gmsm/x509"
+	x509 "github.com/xtls/xray-core/common/crypto/x509"
 )
 
 // cmdCert is the tls cert command

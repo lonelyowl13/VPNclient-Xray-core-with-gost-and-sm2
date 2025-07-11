@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/xtls/xray-core/common/crypto/gost"
-	"github.com/tjfoc/gmsm/sm2"
 )
 
 func cmdGost() {
@@ -28,7 +27,7 @@ func cmdGost() {
 		os.Exit(1)
 	}
 
-	var privKey *sm2.PrivateKey
+	var privKey *gost.GOSTPrivateKey
 	var err error
 
 	if *inputFile != "" {
@@ -53,8 +52,8 @@ func cmdGost() {
 	}
 
 	// Get public key information
-	curveName, pubX, pubY := gost.GetPublicKeyInfo(privKey, curve)
-	privKeyBase64 := base64.StdEncoding.EncodeToString(privKey.D.Bytes())
+	curveName, pubX, pubY := gost.GetPublicKeyInfo(privKey)
+	privKeyBase64 := base64.StdEncoding.EncodeToString(privKey.PrivateKey.Raw())
 
 	fmt.Printf("%s\n", curveName)
 	fmt.Printf("Private key: %s\n", privKeyBase64)

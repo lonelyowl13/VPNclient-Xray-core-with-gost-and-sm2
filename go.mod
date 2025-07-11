@@ -46,6 +46,7 @@ require (
 	github.com/klauspost/compress v1.17.8 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/onsi/ginkgo/v2 v2.19.0 // indirect
+	github.com/pedroalbanese/gogost v0.0.0-20250117160715-44a1f1ec2524 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect
 	github.com/riobard/go-bloom v0.0.0-20200614022211-cdc8013cb5b3 // indirect

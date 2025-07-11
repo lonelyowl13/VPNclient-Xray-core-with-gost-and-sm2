@@ -6,7 +6,6 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
@@ -19,6 +18,8 @@ import (
 	"github.com/xtls/xray-core/common/errors"
 	"github.com/tjfoc/gmsm/sm2"
 	sm2x509 "github.com/tjfoc/gmsm/x509"
+	"github.com/pedroalbanese/gogost/gost3410"
+	x509 "github.com/xtls/xray-core/common/crypto/x509"
 )
 
 type Certificate struct {
@@ -44,8 +45,22 @@ func ParseCertificate(certPEM []byte, keyPEM []byte) (*Certificate, error) {
 }
 
 func (c *Certificate) ToPEM() ([]byte, []byte) {
+	// Determine key type based on content
+	var keyType string
+	if len(c.PrivateKey) > 0 {
+		// Try to detect GOST key by checking if it's PKCS8 format
+		// For now, we'll use a simple heuristic
+		if len(c.PrivateKey) < 50 { // GOST keys are typically smaller
+			keyType = "GOST PRIVATE KEY"
+		} else {
+			keyType = "PRIVATE KEY" // Use generic PKCS8 format
+		}
+	} else {
+		keyType = "PRIVATE KEY"
+	}
+	
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Certificate}),
-		pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: c.PrivateKey})
+		pem.EncodeToMemory(&pem.Block{Type: keyType, Bytes: c.PrivateKey})
 }
 
 type Option func(*x509.Certificate)
@@ -166,117 +181,76 @@ func MustGenerateSM2(parent *Certificate, opts ...SM2Option) *Certificate {
 
 // GenerateGOST2012_256 generates a certificate using GOST 2012-256 algorithm
 func GenerateGOST2012_256(parent *Certificate, opts ...SM2Option) (*Certificate, error) {
+	// Собираем параметры
 	var (
-		err error
+		commonName string
+		expireDays int = 365
 	)
-	selfKey, err := gost.GenerateKeyPair(gost.GOST2012_256)
-	if err != nil {
-		return nil, errors.New("failed to generate GOST 2012-256 private key").Base(err)
+	for _, opt := range opts {
+		// Извлекаем CommonName и NotAfter из опций (если есть)
+		optFunc := opt
+		tmp := &sm2x509.Certificate{}
+		optFunc(tmp)
+		if tmp.Subject.CommonName != "" {
+			commonName = tmp.Subject.CommonName
+		}
+		if !tmp.NotAfter.IsZero() {
+			days := int(tmp.NotAfter.Sub(time.Now()).Hours() / 24)
+			if days > 0 {
+				expireDays = days
+			}
+		}
+	}
+	if commonName == "" {
+		commonName = "GOST2012-256"
 	}
 
-	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	certPEM, keyPEM, err := gost.GenerateGOSTSelfSignedCert(
+		gost3410.CurveIdtc26gost34102012256paramSetA(),
+		gost.GOST256,
+		commonName,
+		expireDays,
+	)
 	if err != nil {
-		return nil, errors.New("failed to generate serial number").Base(err)
+		return nil, errors.New("failed to generate GOST 2012-256 certificate").Base(err)
 	}
-	template := &sm2x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject: pkix.Name{
-			Organization: []string{"Xray GOST 2012-256 Certificate"},
-			CommonName:   "",
-		},
-		NotBefore:             time.Now().Add(time.Hour * -1),
-		NotAfter:              time.Now().Add(time.Hour),
-		KeyUsage:              sm2x509.KeyUsageKeyEncipherment | sm2x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []sm2x509.ExtKeyUsage{sm2x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-	}
-	parentCert := template
-	if parent != nil {
-		pCert, err := sm2x509.ParseCertificate(parent.Certificate)
-		if err != nil {
-			return nil, errors.New("failed to parse parent certificate").Base(err)
-		}
-		parentCert = pCert
-	}
-	if parentCert.NotAfter.Before(template.NotAfter) {
-		template.NotAfter = parentCert.NotAfter
-	}
-	if parentCert.NotBefore.After(template.NotBefore) {
-		template.NotBefore = parentCert.NotBefore
-	}
-	for _, opt := range opts {
-		opt(template)
-	}
-	certDER, err := sm2x509.CreateCertificate(template, parentCert, &selfKey.PublicKey, selfKey)
-	if err != nil {
-		return nil, errors.New("failed to create GOST 2012-256 certificate").Base(err)
-	}
-	privateKey, err := sm2x509.MarshalSm2UnecryptedPrivateKey(selfKey)
-	if err != nil {
-		return nil, errors.New("Unable to marshal GOST 2012-256 private key").Base(err)
-	}
-	return &Certificate{
-		Certificate: certDER,
-		PrivateKey:  privateKey,
-	}, nil
+	return ParseCertificate(certPEM, keyPEM)
 }
 
 // GenerateGOST2012_512 generates a certificate using GOST 2012-512 algorithm
 func GenerateGOST2012_512(parent *Certificate, opts ...SM2Option) (*Certificate, error) {
 	var (
-		err error
+		commonName string
+		expireDays int = 365
 	)
-	selfKey, err := gost.GenerateKeyPair(gost.GOST2012_512)
-	if err != nil {
-		return nil, errors.New("failed to generate GOST 2012-512 private key").Base(err)
-	}
-	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
-	if err != nil {
-		return nil, errors.New("failed to generate serial number").Base(err)
-	}
-	template := &sm2x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject: pkix.Name{
-			Organization: []string{"Xray GOST 2012-512 Certificate"},
-			CommonName:   "",
-		},
-		NotBefore:             time.Now().Add(time.Hour * -1),
-		NotAfter:              time.Now().Add(time.Hour),
-		KeyUsage:              sm2x509.KeyUsageKeyEncipherment | sm2x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []sm2x509.ExtKeyUsage{sm2x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-	}
-	parentCert := template
-	if parent != nil {
-		pCert, err := sm2x509.ParseCertificate(parent.Certificate)
-		if err != nil {
-			return nil, errors.New("failed to parse parent certificate").Base(err)
-		}
-		parentCert = pCert
-	}
-	if parentCert.NotAfter.Before(template.NotAfter) {
-		template.NotAfter = parentCert.NotAfter
-	}
-	if parentCert.NotBefore.After(template.NotBefore) {
-		template.NotBefore = parentCert.NotBefore
-	}
 	for _, opt := range opts {
-		opt(template)
+		optFunc := opt
+		tmp := &sm2x509.Certificate{}
+		optFunc(tmp)
+		if tmp.Subject.CommonName != "" {
+			commonName = tmp.Subject.CommonName
+		}
+		if !tmp.NotAfter.IsZero() {
+			days := int(tmp.NotAfter.Sub(time.Now()).Hours() / 24)
+			if days > 0 {
+				expireDays = days
+			}
+		}
 	}
-	certDER, err := sm2x509.CreateCertificate(template, parentCert, &selfKey.PublicKey, selfKey)
+	if commonName == "" {
+		commonName = "GOST2012-512"
+	}
+
+	certPEM, keyPEM, err := gost.GenerateGOSTSelfSignedCert(
+		gost3410.CurveIdtc26gost34102012512paramSetA(),
+		gost.GOST512,
+		commonName,
+		expireDays,
+	)
 	if err != nil {
-		return nil, errors.New("failed to create GOST 2012-512 certificate").Base(err)
+		return nil, errors.New("failed to generate GOST 2012-512 certificate").Base(err)
 	}
-	privateKey, err := sm2x509.MarshalSm2UnecryptedPrivateKey(selfKey)
-	if err != nil {
-		return nil, errors.New("Unable to marshal GOST 2012-512 private key").Base(err)
-	}
-	return &Certificate{
-		Certificate: certDER,
-		PrivateKey:  privateKey,
-	}, nil
+	return ParseCertificate(certPEM, keyPEM)
 }
 
 // GenerateSM2 generates a certificate using SM2 algorithm
