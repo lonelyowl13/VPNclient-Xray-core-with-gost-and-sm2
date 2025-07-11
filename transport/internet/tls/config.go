@@ -491,6 +491,9 @@ func ParseCurveName(curveNames []string) []tls.CurveID {
 		"curvep521":             tls.CurveP521,
 		"x25519":                tls.X25519,
 		"x25519kyber768draft00": 0x6399,
+		"gost2012_256":          0x6400, // GOST 2012-256 curve
+		"gost2012_512":          0x6401, // GOST 2012-512 curve
+		"sm2":                   0x6402, // SM2 curve
 	}
 
 	var curveIDs []tls.CurveID

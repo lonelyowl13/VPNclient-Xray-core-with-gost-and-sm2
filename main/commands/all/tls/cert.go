@@ -12,11 +12,12 @@ import (
 	"github.com/xtls/xray-core/common/protocol/tls/cert"
 	"github.com/xtls/xray-core/common/task"
 	"github.com/xtls/xray-core/main/commands/base"
+	sm2x509 "github.com/tjfoc/gmsm/x509"
 )
 
 // cmdCert is the tls cert command
 var cmdCert = &base.Command{
-	UsageLine: "{{.Exec}} tls cert [--ca] [--domain=example.com] [--expire=240h]",
+	UsageLine: "{{.Exec}} tls cert [--ca] [--domain=example.com] [--expire=240h] [--algorithm=ecdsa]",
 	Short:     "Generate TLS certificates",
 	Long: `
 Generate TLS certificates.
@@ -43,6 +44,9 @@ Arguments:
 
 	-expire 
 		Expire time of the certificate. Default value 3 months.
+
+	-algorithm
+		The algorithm to use for key generation. Options: ecdsa (default), gost2012_256, gost2012_512, sm2
 `,
 }
 
@@ -63,33 +67,68 @@ var (
 	certJSONOutput   = cmdCert.Flag.Bool("json", true, "Print certificate in JSON format")
 	certFileOutput   = cmdCert.Flag.String("file", "", "Save certificate in file.")
 	certExpire       = cmdCert.Flag.Duration("expire", time.Hour*24*90 /* 90 days */, "Time until the certificate expires. Default value 3 months.")
+	certAlgorithm    = cmdCert.Flag.String("algorithm", "ecdsa", "The algorithm to use for key generation")
 )
 
 func executeCert(cmd *base.Command, args []string) {
-	var opts []cert.Option
-	if *certIsCA {
-		opts = append(opts, cert.Authority(*certIsCA))
-		opts = append(opts, cert.KeyUsage(x509.KeyUsageCertSign|x509.KeyUsageKeyEncipherment|x509.KeyUsageDigitalSignature))
+	var generatedCert *cert.Certificate
+	var err error
+
+	// Generate certificate based on algorithm
+	switch strings.ToLower(*certAlgorithm) {
+	case "gost2012_256", "gost2012_512", "sm2":
+		// Use SM2 options for GOST and SM2 algorithms
+		var sm2Opts []cert.SM2Option
+		if *certIsCA {
+			sm2Opts = append(sm2Opts, cert.SM2Authority(*certIsCA))
+			sm2Opts = append(sm2Opts, cert.SM2KeyUsage(sm2x509.KeyUsageCertSign|sm2x509.KeyUsageKeyEncipherment|sm2x509.KeyUsageDigitalSignature))
+		}
+
+		sm2Opts = append(sm2Opts, cert.SM2NotAfter(time.Now().Add(*certExpire)))
+		sm2Opts = append(sm2Opts, cert.SM2CommonName(*certCommonName))
+		if len(certDomainNames) > 0 {
+			sm2Opts = append(sm2Opts, cert.SM2DNSNames(certDomainNames...))
+		}
+		sm2Opts = append(sm2Opts, cert.SM2Organization(*certOrganization))
+
+		switch strings.ToLower(*certAlgorithm) {
+		case "gost2012_256":
+			generatedCert, err = cert.GenerateGOST2012_256(nil, sm2Opts...)
+		case "gost2012_512":
+			generatedCert, err = cert.GenerateGOST2012_512(nil, sm2Opts...)
+		case "sm2":
+			generatedCert, err = cert.GenerateSM2(nil, sm2Opts...)
+		}
+	case "ecdsa", "default":
+		// Use standard options for ECDSA algorithm
+		var opts []cert.Option
+		if *certIsCA {
+			opts = append(opts, cert.Authority(*certIsCA))
+			opts = append(opts, cert.KeyUsage(x509.KeyUsageCertSign|x509.KeyUsageKeyEncipherment|x509.KeyUsageDigitalSignature))
+		}
+
+		opts = append(opts, cert.NotAfter(time.Now().Add(*certExpire)))
+		opts = append(opts, cert.CommonName(*certCommonName))
+		if len(certDomainNames) > 0 {
+			opts = append(opts, cert.DNSNames(certDomainNames...))
+		}
+		opts = append(opts, cert.Organization(*certOrganization))
+
+		generatedCert, err = cert.Generate(nil, opts...)
+	default:
+		base.Fatalf("unsupported algorithm: %s. Supported algorithms: ecdsa, gost2012_256, gost2012_512, sm2", *certAlgorithm)
 	}
 
-	opts = append(opts, cert.NotAfter(time.Now().Add(*certExpire)))
-	opts = append(opts, cert.CommonName(*certCommonName))
-	if len(certDomainNames) > 0 {
-		opts = append(opts, cert.DNSNames(certDomainNames...))
-	}
-	opts = append(opts, cert.Organization(*certOrganization))
-
-	cert, err := cert.Generate(nil, opts...)
 	if err != nil {
 		base.Fatalf("failed to generate TLS certificate: %s", err)
 	}
 
 	if *certJSONOutput {
-		printJSON(cert)
+		printJSON(generatedCert)
 	}
 
 	if len(*certFileOutput) > 0 {
-		if err := printFile(cert, *certFileOutput); err != nil {
+		if err := printFile(generatedCert, *certFileOutput); err != nil {
 			base.Fatalf("failed to save file: %s", err)
 		}
 	}

@@ -7,13 +7,18 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
 	"math/big"
 	"time"
 
 	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/crypto/gost"
+	sm2crypto "github.com/xtls/xray-core/common/crypto/sm2"
 	"github.com/xtls/xray-core/common/errors"
+	"github.com/tjfoc/gmsm/sm2"
+	sm2x509 "github.com/tjfoc/gmsm/x509"
 )
 
 type Certificate struct {
@@ -45,8 +50,17 @@ func (c *Certificate) ToPEM() ([]byte, []byte) {
 
 type Option func(*x509.Certificate)
 
+// SM2-specific option types
+type SM2Option func(*sm2x509.Certificate)
+
 func Authority(isCA bool) Option {
 	return func(cert *x509.Certificate) {
+		cert.IsCA = isCA
+	}
+}
+
+func SM2Authority(isCA bool) SM2Option {
+	return func(cert *sm2x509.Certificate) {
 		cert.IsCA = isCA
 	}
 }
@@ -57,8 +71,20 @@ func NotBefore(t time.Time) Option {
 	}
 }
 
+func SM2NotBefore(t time.Time) SM2Option {
+	return func(c *sm2x509.Certificate) {
+		c.NotBefore = t
+	}
+}
+
 func NotAfter(t time.Time) Option {
 	return func(c *x509.Certificate) {
+		c.NotAfter = t
+	}
+}
+
+func SM2NotAfter(t time.Time) SM2Option {
+	return func(c *sm2x509.Certificate) {
 		c.NotAfter = t
 	}
 }
@@ -69,8 +95,20 @@ func DNSNames(names ...string) Option {
 	}
 }
 
+func SM2DNSNames(names ...string) SM2Option {
+	return func(c *sm2x509.Certificate) {
+		c.DNSNames = names
+	}
+}
+
 func CommonName(name string) Option {
 	return func(c *x509.Certificate) {
+		c.Subject.CommonName = name
+	}
+}
+
+func SM2CommonName(name string) SM2Option {
+	return func(c *sm2x509.Certificate) {
 		c.Subject.CommonName = name
 	}
 }
@@ -81,8 +119,20 @@ func KeyUsage(usage x509.KeyUsage) Option {
 	}
 }
 
+func SM2KeyUsage(usage sm2x509.KeyUsage) SM2Option {
+	return func(c *sm2x509.Certificate) {
+		c.KeyUsage = usage
+	}
+}
+
 func Organization(org string) Option {
 	return func(c *x509.Certificate) {
+		c.Subject.Organization = []string{org}
+	}
+}
+
+func SM2Organization(org string) SM2Option {
+	return func(c *sm2x509.Certificate) {
 		c.Subject.Organization = []string{org}
 	}
 }
@@ -93,6 +143,199 @@ func MustGenerate(parent *Certificate, opts ...Option) *Certificate {
 	return cert
 }
 
+// MustGenerateGOST2012_256 generates a certificate using GOST 2012-256 algorithm
+func MustGenerateGOST2012_256(parent *Certificate, opts ...SM2Option) *Certificate {
+	cert, err := GenerateGOST2012_256(parent, opts...)
+	common.Must(err)
+	return cert
+}
+
+// MustGenerateGOST2012_512 generates a certificate using GOST 2012-512 algorithm
+func MustGenerateGOST2012_512(parent *Certificate, opts ...SM2Option) *Certificate {
+	cert, err := GenerateGOST2012_512(parent, opts...)
+	common.Must(err)
+	return cert
+}
+
+// MustGenerateSM2 generates a certificate using SM2 algorithm
+func MustGenerateSM2(parent *Certificate, opts ...SM2Option) *Certificate {
+	cert, err := GenerateSM2(parent, opts...)
+	common.Must(err)
+	return cert
+}
+
+// GenerateGOST2012_256 generates a certificate using GOST 2012-256 algorithm
+func GenerateGOST2012_256(parent *Certificate, opts ...SM2Option) (*Certificate, error) {
+	var (
+		err error
+	)
+	selfKey, err := gost.GenerateKeyPair(gost.GOST2012_256)
+	if err != nil {
+		return nil, errors.New("failed to generate GOST 2012-256 private key").Base(err)
+	}
+
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		return nil, errors.New("failed to generate serial number").Base(err)
+	}
+	template := &sm2x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"Xray GOST 2012-256 Certificate"},
+			CommonName:   "",
+		},
+		NotBefore:             time.Now().Add(time.Hour * -1),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              sm2x509.KeyUsageKeyEncipherment | sm2x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []sm2x509.ExtKeyUsage{sm2x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	parentCert := template
+	if parent != nil {
+		pCert, err := sm2x509.ParseCertificate(parent.Certificate)
+		if err != nil {
+			return nil, errors.New("failed to parse parent certificate").Base(err)
+		}
+		parentCert = pCert
+	}
+	if parentCert.NotAfter.Before(template.NotAfter) {
+		template.NotAfter = parentCert.NotAfter
+	}
+	if parentCert.NotBefore.After(template.NotBefore) {
+		template.NotBefore = parentCert.NotBefore
+	}
+	for _, opt := range opts {
+		opt(template)
+	}
+	certDER, err := sm2x509.CreateCertificate(template, parentCert, &selfKey.PublicKey, selfKey)
+	if err != nil {
+		return nil, errors.New("failed to create GOST 2012-256 certificate").Base(err)
+	}
+	privateKey, err := sm2x509.MarshalSm2UnecryptedPrivateKey(selfKey)
+	if err != nil {
+		return nil, errors.New("Unable to marshal GOST 2012-256 private key").Base(err)
+	}
+	return &Certificate{
+		Certificate: certDER,
+		PrivateKey:  privateKey,
+	}, nil
+}
+
+// GenerateGOST2012_512 generates a certificate using GOST 2012-512 algorithm
+func GenerateGOST2012_512(parent *Certificate, opts ...SM2Option) (*Certificate, error) {
+	var (
+		err error
+	)
+	selfKey, err := gost.GenerateKeyPair(gost.GOST2012_512)
+	if err != nil {
+		return nil, errors.New("failed to generate GOST 2012-512 private key").Base(err)
+	}
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		return nil, errors.New("failed to generate serial number").Base(err)
+	}
+	template := &sm2x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"Xray GOST 2012-512 Certificate"},
+			CommonName:   "",
+		},
+		NotBefore:             time.Now().Add(time.Hour * -1),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              sm2x509.KeyUsageKeyEncipherment | sm2x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []sm2x509.ExtKeyUsage{sm2x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	parentCert := template
+	if parent != nil {
+		pCert, err := sm2x509.ParseCertificate(parent.Certificate)
+		if err != nil {
+			return nil, errors.New("failed to parse parent certificate").Base(err)
+		}
+		parentCert = pCert
+	}
+	if parentCert.NotAfter.Before(template.NotAfter) {
+		template.NotAfter = parentCert.NotAfter
+	}
+	if parentCert.NotBefore.After(template.NotBefore) {
+		template.NotBefore = parentCert.NotBefore
+	}
+	for _, opt := range opts {
+		opt(template)
+	}
+	certDER, err := sm2x509.CreateCertificate(template, parentCert, &selfKey.PublicKey, selfKey)
+	if err != nil {
+		return nil, errors.New("failed to create GOST 2012-512 certificate").Base(err)
+	}
+	privateKey, err := sm2x509.MarshalSm2UnecryptedPrivateKey(selfKey)
+	if err != nil {
+		return nil, errors.New("Unable to marshal GOST 2012-512 private key").Base(err)
+	}
+	return &Certificate{
+		Certificate: certDER,
+		PrivateKey:  privateKey,
+	}, nil
+}
+
+// GenerateSM2 generates a certificate using SM2 algorithm
+func GenerateSM2(parent *Certificate, opts ...SM2Option) (*Certificate, error) {
+	var (
+		err error
+	)
+	selfKey, err := sm2crypto.GenerateKeyPair()
+	if err != nil {
+		return nil, errors.New("failed to generate SM2 private key").Base(err)
+	}
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		return nil, errors.New("failed to generate serial number").Base(err)
+	}
+	template := &sm2x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"Xray SM2 Certificate"},
+			CommonName:   "",
+		},
+		NotBefore:             time.Now().Add(time.Hour * -1),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              sm2x509.KeyUsageKeyEncipherment | sm2x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []sm2x509.ExtKeyUsage{sm2x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	parentCert := template
+	if parent != nil {
+		pCert, err := sm2x509.ParseCertificate(parent.Certificate)
+		if err != nil {
+			return nil, errors.New("failed to parse parent certificate").Base(err)
+		}
+		parentCert = pCert
+	}
+	if parentCert.NotAfter.Before(template.NotAfter) {
+		template.NotAfter = parentCert.NotAfter
+	}
+	if parentCert.NotBefore.After(template.NotBefore) {
+		template.NotBefore = parentCert.NotBefore
+	}
+	for _, opt := range opts {
+		opt(template)
+	}
+	certDER, err := sm2x509.CreateCertificate(template, parentCert, &selfKey.PublicKey, selfKey)
+	if err != nil {
+		return nil, errors.New("failed to create SM2 certificate").Base(err)
+	}
+	privateKey, err := sm2x509.MarshalSm2UnecryptedPrivateKey(selfKey)
+	if err != nil {
+		return nil, errors.New("Unable to marshal SM2 private key").Base(err)
+	}
+	return &Certificate{
+		Certificate: certDER,
+		PrivateKey:  privateKey,
+	}, nil
+}
+
 func publicKey(priv interface{}) interface{} {
 	switch k := priv.(type) {
 	case *rsa.PrivateKey:
@@ -101,6 +344,8 @@ func publicKey(priv interface{}) interface{} {
 		return &k.PublicKey
 	case ed25519.PrivateKey:
 		return k.Public().(ed25519.PublicKey)
+	case *sm2.PrivateKey:
+		return &k.PublicKey
 	default:
 		return nil
 	}
