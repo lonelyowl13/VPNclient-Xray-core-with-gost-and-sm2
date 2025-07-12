@@ -24,7 +24,7 @@ echo "🔧 Creating VMess server configuration..."
 cat > vmess_gost2012_512.json << 'EOF'
 {
   "log": {
-    "loglevel": "info"
+    "loglevel": "debug"
   },
   "inbounds": [
     {

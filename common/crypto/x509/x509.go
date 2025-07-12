@@ -17,6 +17,7 @@ import (
 	"github.com/pedroalbanese/gogost/gost34112012256"
 	"github.com/tjfoc/gmsm/sm2"
 	"github.com/tjfoc/gmsm/sm3"
+	"crypto/elliptic"
 )
 
 // SignatureAlgorithm represents the algorithm used to sign the certificate
@@ -223,7 +224,7 @@ func CreateCertificate(rand io.Reader, template, parent *Certificate, pub interf
 	}
 
 	// Create TBS certificate
-	tbsCert, err := createTBSCertificate(template, sigAlg)
+	tbsCert, err := createTBSCertificate(template, pub, sigAlg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TBS certificate: %w", err)
 	}
@@ -313,15 +314,21 @@ func ParsePKCS1PrivateKey(der []byte) (*rsa.PrivateKey, error) {
 }
 
 // Helper functions
-func createTBSCertificate(template *Certificate, sigAlg SignatureAlgorithm) ([]byte, error) {
+func createTBSCertificate(template *Certificate, pub interface{}, sigAlg SignatureAlgorithm) ([]byte, error) {
 	// Create a basic ASN.1 DER encoding of the To-Be-Signed certificate
 	// This is a simplified implementation for testing purposes
 	
-	// Determine GOST OID based on signature algorithm
+	// Determine OIDs based on signature algorithm
 	var signatureOID asn1.ObjectIdentifier
 	var publicKeyOID asn1.ObjectIdentifier
 	
 	switch sigAlg {
+	case SHA256WithRSA:
+		signatureOID = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 11} // SHA256WithRSA
+		publicKeyOID = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1} // RSA
+	case ECDSAWithSHA256:
+		signatureOID = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 2} // ECDSAWithSHA256
+		publicKeyOID = asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1} // EC
 	case GOST256:
 		signatureOID = asn1.ObjectIdentifier{1, 2, 643, 7, 1, 1, 3, 2} // GOST R 34.10-2012 256-bit
 		publicKeyOID = asn1.ObjectIdentifier{1, 2, 643, 7, 1, 1, 1, 1} // GOST R 34.10-2012 256-bit
@@ -329,8 +336,36 @@ func createTBSCertificate(template *Certificate, sigAlg SignatureAlgorithm) ([]b
 		signatureOID = asn1.ObjectIdentifier{1, 2, 643, 7, 1, 1, 3, 3} // GOST R 34.10-2012 512-bit
 		publicKeyOID = asn1.ObjectIdentifier{1, 2, 643, 7, 1, 1, 1, 2} // GOST R 34.10-2012 512-bit
 	default:
-		signatureOID = asn1.ObjectIdentifier{1, 2, 643, 7, 1, 1, 3, 2} // Default to 256-bit
-		publicKeyOID = asn1.ObjectIdentifier{1, 2, 643, 7, 1, 1, 1, 1}
+		signatureOID = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 2} // Default to ECDSAWithSHA256
+		publicKeyOID = asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1} // EC
+	}
+	
+	// Encode the public key based on its type
+	var publicKeyBytes []byte
+	var bitLength int
+	
+	switch p := pub.(type) {
+	case *rsa.PublicKey:
+		// For RSA, we need to encode the modulus and exponent
+		publicKeyBytes = []byte{0x04} // Placeholder for RSA public key
+		bitLength = p.N.BitLen()
+	case *ecdsa.PublicKey:
+		// For ECDSA, encode the point in uncompressed format
+		publicKeyBytes = append([]byte{0x04}, p.X.Bytes()...)
+		publicKeyBytes = append(publicKeyBytes, p.Y.Bytes()...)
+		bitLength = len(publicKeyBytes) * 8
+	case *sm2.PublicKey:
+		// For SM2, encode the point in uncompressed format
+		publicKeyBytes = append([]byte{0x04}, p.X.Bytes()...)
+		publicKeyBytes = append(publicKeyBytes, p.Y.Bytes()...)
+		bitLength = len(publicKeyBytes) * 8
+	case *gost3410.PublicKey:
+		// For GOST, encode the point in uncompressed format (like ECDSA)
+		publicKeyBytes = append([]byte{0x04}, p.X.Bytes()...)
+		publicKeyBytes = append(publicKeyBytes, p.Y.Bytes()...)
+		bitLength = len(publicKeyBytes) * 8
+	default:
+		return nil, fmt.Errorf("unsupported public key type: %T", pub)
 	}
 	
 	// Create the basic certificate structure with proper ASN.1 tags
@@ -374,8 +409,8 @@ func createTBSCertificate(template *Certificate, sigAlg SignatureAlgorithm) ([]b
 				Algorithm: publicKeyOID,
 			},
 			PublicKey: asn1.BitString{
-				Bytes:     []byte{0x04, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // Placeholder GOST public key
-				BitLength: 256,
+				Bytes:     publicKeyBytes,
+				BitLength: bitLength,
 			},
 		},
 		IssuerUniqueID:  asn1.BitString{},
@@ -549,4 +584,68 @@ func marshalGOSTPKCS8PrivateKey(key *gost3410.PrivateKey) ([]byte, error) {
 	}
 
 	return der, nil
+} 
+
+// encodeSubjectPublicKeyInfo формирует ASN.1 DER SubjectPublicKeyInfo и возвращает AlgorithmIdentifier и BitString
+func encodeSubjectPublicKeyInfo(pub interface{}, sigAlg SignatureAlgorithm) (pkix.AlgorithmIdentifier, asn1.BitString, error) {
+	var algo pkix.AlgorithmIdentifier
+	var pubKeyBytes []byte
+	var bitLength int
+
+	switch p := pub.(type) {
+	case *rsa.PublicKey:
+		algo = pkix.AlgorithmIdentifier{
+			Algorithm: asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1},
+		}
+		type rsaPub struct {
+			N *big.Int
+			E int
+		}
+		pubASN1, err := asn1.Marshal(rsaPub{p.N, p.E})
+		if err != nil {
+			return algo, asn1.BitString{}, err
+		}
+		pubKeyBytes = pubASN1
+		bitLength = len(pubKeyBytes) * 8
+	case *ecdsa.PublicKey:
+		curveOID := asn1.ObjectIdentifier{1, 2, 840, 10045, 3, 1, 7} // secp256r1
+		curveOIDBytes, _ := asn1.Marshal(curveOID)
+		algo = pkix.AlgorithmIdentifier{
+			Algorithm: asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1},
+			Parameters: asn1.RawValue{
+				FullBytes: curveOIDBytes,
+			},
+		}
+		pubKeyBytes = ellipticMarshal(p.Curve, p.X, p.Y)
+		bitLength = len(pubKeyBytes) * 8
+	case *sm2.PublicKey:
+		sm2OID := asn1.ObjectIdentifier{1, 2, 156, 10197, 1, 301, 1}
+		sm2OIDBytes, _ := asn1.Marshal(sm2OID)
+		algo = pkix.AlgorithmIdentifier{
+			Algorithm: sm2OID,
+			Parameters: asn1.RawValue{
+				FullBytes: sm2OIDBytes,
+			},
+		}
+		pubKeyBytes = ellipticMarshal(p.Curve, p.X, p.Y)
+		bitLength = len(pubKeyBytes) * 8
+	case *gost3410.PublicKey:
+		gostOID := asn1.ObjectIdentifier{1, 2, 643, 7, 1, 1, 1, 1}
+		gostOIDBytes, _ := asn1.Marshal(gostOID)
+		algo = pkix.AlgorithmIdentifier{
+			Algorithm: gostOID,
+			Parameters: asn1.RawValue{FullBytes: gostOIDBytes},
+		}
+		pubKeyBytes = append([]byte{0x04}, p.X.Bytes()...)
+		pubKeyBytes = append(pubKeyBytes, p.Y.Bytes()...)
+		bitLength = len(pubKeyBytes) * 8
+	default:
+		return algo, asn1.BitString{}, fmt.Errorf("unsupported public key type: %T", pub)
+	}
+	return algo, asn1.BitString{Bytes: pubKeyBytes, BitLength: bitLength}, nil
+}
+
+// ellipticMarshal — стандартная функция для маршалинга точки на кривой
+func ellipticMarshal(curve elliptic.Curve, x, y *big.Int) []byte {
+	return append([]byte{0x04}, append(x.Bytes(), y.Bytes()...)...)
 } 

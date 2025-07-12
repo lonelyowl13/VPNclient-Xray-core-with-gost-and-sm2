@@ -24,7 +24,7 @@ echo "🔧 Creating VLESS server configuration..."
 cat > vless_sm2.json << 'EOF'
 {
   "log": {
-    "loglevel": "info"
+    "loglevel": "debug"
   },
   "inbounds": [
     {
