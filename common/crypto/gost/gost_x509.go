@@ -12,14 +12,8 @@ import (
 	"github.com/pedroalbanese/gogost/gost3410"
 )
 
-// GOST signature algorithm constants
-const (
-	GOST256 = 0x0601 // GOST R 34.10-2012 256-bit
-	GOST512 = 0x0602 // GOST R 34.10-2012 512-bit
-)
-
 // GenerateGOSTSelfSignedCert создает самоподписанный X.509 сертификат GOST2012 (256 или 512)
-func GenerateGOSTSelfSignedCert(curve *gost3410.Curve, sigAlg x509.SignatureAlgorithm, cn string, expireDays int) ([]byte, []byte, error) {
+func GenerateGOSTSelfSignedCert(curve *gost3410.Curve, cn string, expireDays int) ([]byte, []byte, error) {
 	fmt.Printf("DEBUG: Starting GenerateGOSTSelfSignedCert\n")
 	
 	prvRaw := make([]byte, curve.PointSize())
@@ -42,18 +36,27 @@ func GenerateGOSTSelfSignedCert(curve *gost3410.Curve, sigAlg x509.SignatureAlgo
 	notBefore := time.Now()
 	notAfter := notBefore.Add(time.Duration(expireDays) * 24 * time.Hour)
 	serial := big.NewInt(time.Now().UnixNano())
+	
+	// Determine the correct signature algorithm based on curve size
+	var signatureAlgorithm x509.SignatureAlgorithm
+	if curve.PointSize() == 32 {
+		signatureAlgorithm = x509.GOST256
+	} else {
+		signatureAlgorithm = x509.GOST512
+	}
+	
 	template := x509.Certificate{
 		SerialNumber:       serial,
 		NotBefore:          notBefore,
 		NotAfter:           notAfter,
-		SignatureAlgorithm: sigAlg,
+		SignatureAlgorithm: signatureAlgorithm,
 		Subject:            pkix.Name{CommonName: cn},
 		KeyUsage:           x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		BasicConstraintsValid: true,
 		IsCA: false,
 	}
 
-	fmt.Printf("DEBUG: About to call CreateCertificate\n")
+	fmt.Printf("DEBUG: About to call CreateCertificate with signature algorithm: %d\n", signatureAlgorithm)
 	certDER, err := x509.CreateCertificate(
 		rand.Reader,
 		&template, &template, pub,
@@ -94,11 +97,20 @@ func GenerateGOSTCAChildCert(curve *gost3410.Curve, sigAlg x509.SignatureAlgorit
 	notBefore := time.Now()
 	notAfter := notBefore.Add(time.Duration(expireDays) * 24 * time.Hour)
 	serial := big.NewInt(time.Now().UnixNano())
+	
+	// Determine the correct signature algorithm based on curve size
+	var signatureAlgorithm x509.SignatureAlgorithm
+	if curve.PointSize() == 32 {
+		signatureAlgorithm = x509.GOST256
+	} else {
+		signatureAlgorithm = x509.GOST512
+	}
+	
 	template := x509.Certificate{
 		SerialNumber:       serial,
 		NotBefore:          notBefore,
 		NotAfter:           notAfter,
-		SignatureAlgorithm: sigAlg,
+		SignatureAlgorithm: signatureAlgorithm,
 		Subject:            pkix.Name{CommonName: cn},
 		KeyUsage:           x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		BasicConstraintsValid: true,

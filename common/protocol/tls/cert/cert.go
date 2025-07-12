@@ -207,7 +207,6 @@ func GenerateGOST2012_256(parent *Certificate, opts ...SM2Option) (*Certificate,
 
 	certPEM, keyPEM, err := gost.GenerateGOSTSelfSignedCert(
 		gost3410.CurveIdtc26gost34102012256paramSetA(),
-		gost.GOST256,
 		commonName,
 		expireDays,
 	)
@@ -243,7 +242,6 @@ func GenerateGOST2012_512(parent *Certificate, opts ...SM2Option) (*Certificate,
 
 	certPEM, keyPEM, err := gost.GenerateGOSTSelfSignedCert(
 		gost3410.CurveIdtc26gost34102012512paramSetA(),
-		gost.GOST512,
 		commonName,
 		expireDays,
 	)

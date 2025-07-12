@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -65,6 +66,7 @@ func (c *Config) BuildCertificates() []*tls.Certificate {
 		getX509KeyPair := func() *tls.Certificate {
 			// Check if this is an SM2 certificate by trying to parse it with SM2 library first
 			if isSM2Certificate(entry.Certificate) {
+				fmt.Printf("DEBUG: Processing SM2 certificate\n")
 				keyPair, err := buildSM2KeyPair(entry.Certificate, entry.Key)
 				if err != nil {
 					errors.LogWarningInner(context.Background(), err, "ignoring invalid SM2 key pair")
@@ -74,16 +76,20 @@ func (c *Config) BuildCertificates() []*tls.Certificate {
 			}
 			
 			// Fall back to standard X509 processing
+			fmt.Printf("DEBUG: Processing standard X509 certificate\n")
 			keyPair, err := tls.X509KeyPair(entry.Certificate, entry.Key)
 			if err != nil {
+				fmt.Printf("DEBUG: X509KeyPair error: %v\n", err)
 				errors.LogWarningInner(context.Background(), err, "ignoring invalid X509 key pair")
 				return nil
 			}
 			keyPair.Leaf, err = x509.ParseCertificate(keyPair.Certificate[0])
 			if err != nil {
+				fmt.Printf("DEBUG: ParseCertificate error: %v\n", err)
 				errors.LogWarningInner(context.Background(), err, "ignoring invalid certificate")
 				return nil
 			}
+			fmt.Printf("DEBUG: Successfully loaded X509 certificate\n")
 			return &keyPair
 		}
 		if keyPair := getX509KeyPair(); keyPair != nil {
@@ -122,22 +128,22 @@ func isSM2Certificate(certPEM []byte) bool {
 		return false
 	}
 	
-	// Try to parse with SM2 x509 library
-	_, err := sm2x509.ParseCertificate(block.Bytes)
+	// First, try to parse as standard x509 to see if it's a regular certificate
+	_, err := x509.ParseCertificate(block.Bytes)
 	if err == nil {
-		return true
-	}
-	
-	// Also check if it's a standard x509 certificate that might be SM2
-	// by looking for SM2 OIDs or curve parameters
-	if len(block.Bytes) > 0 {
-		// Check if certificate contains SM2 curve OID
+		// It's a valid standard x509 certificate, check if it contains SM2-specific OIDs
 		if bytes.Contains(block.Bytes, []byte{0x06, 0x08, 0x2A, 0x81, 0x1C, 0xCF, 0x55, 0x01, 0x82, 0x2D}) {
-			return true
+			// Contains SM2 curve OID, try SM2 parsing
+			_, err := sm2x509.ParseCertificate(block.Bytes)
+			return err == nil
 		}
+		// Standard x509 certificate without SM2 OIDs - not SM2
+		return false
 	}
 	
-	return false
+	// If standard x509 parsing failed, try SM2 parsing
+	_, err = sm2x509.ParseCertificate(block.Bytes)
+	return err == nil
 }
 
 // buildSM2KeyPair creates a tls.Certificate from SM2 certificate and key

@@ -318,6 +318,8 @@ func createTBSCertificate(template *Certificate, pub interface{}, sigAlg Signatu
 	// Create a basic ASN.1 DER encoding of the To-Be-Signed certificate
 	// This is a simplified implementation for testing purposes
 	
+	fmt.Printf("DEBUG: createTBSCertificate called with signature algorithm: %d\n", sigAlg)
+	
 	// Determine OIDs based on signature algorithm
 	var signatureOID asn1.ObjectIdentifier
 	var publicKeyOID asn1.ObjectIdentifier
@@ -368,6 +370,71 @@ func createTBSCertificate(template *Certificate, pub interface{}, sigAlg Signatu
 		return nil, fmt.Errorf("unsupported public key type: %T", pub)
 	}
 	
+	// For GOST certificates, we need to use a different approach
+	// GOST certificates have a specific ASN.1 structure that's different from standard X.509
+	if sigAlg == GOST256 || sigAlg == GOST512 {
+		fmt.Printf("DEBUG: Using GOST-specific certificate structure\n")
+		// Create GOST-specific certificate structure
+		gostCert := struct {
+			Version            int `asn1:"optional,explicit,default:0,tag:0"`
+			SerialNumber       *big.Int
+			SignatureAlgorithm pkix.AlgorithmIdentifier
+			Issuer            pkix.Name
+			Validity          struct {
+				NotBefore time.Time
+				NotAfter  time.Time
+			}
+			Subject            pkix.Name
+			SubjectPublicKeyInfo struct {
+				Algorithm pkix.AlgorithmIdentifier
+				PublicKey asn1.BitString
+			}
+			IssuerUniqueID  asn1.BitString `asn1:"optional,tag:1"`
+			SubjectUniqueID asn1.BitString `asn1:"optional,tag:2"`
+			Extensions      []pkix.Extension `asn1:"optional,tag:3"`
+		}{
+			Version:      template.Version,
+			SerialNumber: template.SerialNumber,
+			SignatureAlgorithm: pkix.AlgorithmIdentifier{
+				Algorithm: signatureOID,
+			},
+			Issuer: template.Issuer,
+			Validity: struct {
+				NotBefore time.Time
+				NotAfter  time.Time
+			}{
+				NotBefore: template.NotBefore,
+				NotAfter:  template.NotAfter,
+			},
+			Subject: template.Subject,
+			SubjectPublicKeyInfo: struct {
+				Algorithm pkix.AlgorithmIdentifier
+				PublicKey asn1.BitString
+			}{
+				Algorithm: pkix.AlgorithmIdentifier{
+					Algorithm: publicKeyOID,
+				},
+				PublicKey: asn1.BitString{
+					Bytes:     publicKeyBytes,
+					BitLength: bitLength,
+				},
+			},
+			IssuerUniqueID:  asn1.BitString{},
+			SubjectUniqueID: asn1.BitString{},
+			Extensions:      template.Extensions,
+		}
+
+		// Encode to ASN.1 DER
+		der, err := asn1.Marshal(gostCert)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal GOST TBS certificate: %w", err)
+		}
+
+		fmt.Printf("DEBUG: GOST TBS certificate marshaled successfully, length: %d\n", len(der))
+		return der, nil
+	}
+	
+	fmt.Printf("DEBUG: Using standard X.509 certificate structure\n")
 	// Create the basic certificate structure with proper ASN.1 tags
 	tbs := struct {
 		Version            int `asn1:"optional,explicit,default:0,tag:0"`
