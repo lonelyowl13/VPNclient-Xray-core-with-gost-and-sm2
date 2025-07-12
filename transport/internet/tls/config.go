@@ -8,12 +8,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"os"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	sm2x509 "github.com/tjfoc/gmsm/x509"
 	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/ocsp"
@@ -39,6 +41,13 @@ func ParseCertificate(c *cert.Certificate) *Certificate {
 func (c *Config) loadSelfCertPool() (*x509.CertPool, error) {
 	root := x509.NewCertPool()
 	for _, cert := range c.Certificate {
+		// Check if this is an SM2 certificate
+		if isSM2Certificate(cert.Certificate) {
+			// For SM2 certificates, we cannot add to the standard x509 pool
+			errors.LogWarningInner(context.Background(), errors.New("cannot add SM2 certificate to standard x509 pool"), "skipping SM2 certificate in root pool")
+			continue
+		}
+		// Standard x509 certificate handling
 		if !root.AppendCertsFromPEM(cert.Certificate) {
 			return nil, errors.New("failed to append cert").AtWarning()
 		}
@@ -54,6 +63,17 @@ func (c *Config) BuildCertificates() []*tls.Certificate {
 			continue
 		}
 		getX509KeyPair := func() *tls.Certificate {
+			// Check if this is an SM2 certificate by trying to parse it with SM2 library first
+			if isSM2Certificate(entry.Certificate) {
+				keyPair, err := buildSM2KeyPair(entry.Certificate, entry.Key)
+				if err != nil {
+					errors.LogWarningInner(context.Background(), err, "ignoring invalid SM2 key pair")
+					return nil
+				}
+				return keyPair
+			}
+			
+			// Fall back to standard X509 processing
 			keyPair, err := tls.X509KeyPair(entry.Certificate, entry.Key)
 			if err != nil {
 				errors.LogWarningInner(context.Background(), err, "ignoring invalid X509 key pair")
@@ -92,6 +112,66 @@ func (c *Config) BuildCertificates() []*tls.Certificate {
 		})
 	}
 	return certs
+}
+
+// isSM2Certificate checks if the certificate is an SM2 certificate
+func isSM2Certificate(certPEM []byte) bool {
+	// Try to parse with SM2 library first
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return false
+	}
+	
+	// Try to parse with SM2 x509 library
+	_, err := sm2x509.ParseCertificate(block.Bytes)
+	if err == nil {
+		return true
+	}
+	
+	// Also check if it's a standard x509 certificate that might be SM2
+	// by looking for SM2 OIDs or curve parameters
+	if len(block.Bytes) > 0 {
+		// Check if certificate contains SM2 curve OID
+		if bytes.Contains(block.Bytes, []byte{0x06, 0x08, 0x2A, 0x81, 0x1C, 0xCF, 0x55, 0x01, 0x82, 0x2D}) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// buildSM2KeyPair creates a tls.Certificate from SM2 certificate and key
+func buildSM2KeyPair(certPEM, keyPEM []byte) (*tls.Certificate, error) {
+	// Parse SM2 certificate
+	certBlock, _ := pem.Decode(certPEM)
+	if certBlock == nil {
+		return nil, errors.New("failed to decode SM2 certificate")
+	}
+	// Try to parse with SM2 x509 library first (just to validate)
+	if _, err := sm2x509.ParseCertificate(certBlock.Bytes); err != nil {
+		return nil, errors.New("failed to parse SM2 certificate").Base(err)
+	}
+	// Parse SM2 private key
+	keyBlock, _ := pem.Decode(keyPEM)
+	if keyBlock == nil {
+		return nil, errors.New("failed to decode SM2 private key")
+	}
+	var sm2Key interface{}
+	// Try different SM2 key formats
+	sm2Key, err := sm2x509.ParsePKCS8PrivateKey(keyBlock.Bytes, nil)
+	if err != nil {
+		// Try unencrypted PKCS8 format
+		sm2Key, err = sm2x509.ParsePKCS8UnecryptedPrivateKey(keyBlock.Bytes)
+		if err != nil {
+			return nil, errors.New("failed to parse SM2 private key").Base(err)
+		}
+	}
+	// Create tls.Certificate with proper SM2 handling (do not set Leaf)
+	keyPair := &tls.Certificate{
+		Certificate: [][]byte{certBlock.Bytes},
+		PrivateKey:  sm2Key,
+	}
+	return keyPair, nil
 }
 
 func setupOcspTicker(entry *Certificate, callback func(isReloaded, isOcspstapling bool)) {

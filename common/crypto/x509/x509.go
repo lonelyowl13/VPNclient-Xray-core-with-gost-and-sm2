@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pedroalbanese/gogost/gost3410"
+	"github.com/pedroalbanese/gogost/gost34112012256"
 )
 
 // SignatureAlgorithm represents the algorithm used to sign the certificate
@@ -319,7 +320,7 @@ func createTBSCertificate(template *Certificate, sigAlg SignatureAlgorithm) ([]b
 		publicKeyOID = asn1.ObjectIdentifier{1, 2, 643, 7, 1, 1, 1, 1}
 	}
 	
-	// Create the basic certificate structure
+	// Create the basic certificate structure with proper ASN.1 tags
 	tbs := struct {
 		Version            int `asn1:"optional,explicit,default:0,tag:0"`
 		SerialNumber       *big.Int
@@ -334,7 +335,9 @@ func createTBSCertificate(template *Certificate, sigAlg SignatureAlgorithm) ([]b
 			Algorithm pkix.AlgorithmIdentifier
 			PublicKey asn1.BitString
 		}
-		Extensions []pkix.Extension `asn1:"optional,tag:3"`
+		IssuerUniqueID  asn1.BitString `asn1:"optional,tag:1"`
+		SubjectUniqueID asn1.BitString `asn1:"optional,tag:2"`
+		Extensions      []pkix.Extension `asn1:"optional,tag:3"`
 	}{
 		Version:      template.Version,
 		SerialNumber: template.SerialNumber,
@@ -358,11 +361,13 @@ func createTBSCertificate(template *Certificate, sigAlg SignatureAlgorithm) ([]b
 				Algorithm: publicKeyOID,
 			},
 			PublicKey: asn1.BitString{
-				Bytes:     []byte{}, // Placeholder - will be filled by actual public key
-				BitLength: 0,
+				Bytes:     []byte{0x04, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // Placeholder GOST public key
+				BitLength: 256,
 			},
 		},
-		Extensions: template.Extensions,
+		IssuerUniqueID:  asn1.BitString{},
+		SubjectUniqueID: asn1.BitString{},
+		Extensions:      template.Extensions,
 	}
 
 	// Encode to ASN.1 DER
@@ -400,7 +405,18 @@ func signWithGOST(data []byte, priv *gost3410.PrivateKey, sigAlg SignatureAlgori
 
 func signWithGOSTReverseDigest(data []byte, priv *gost3410.PrivateKeyReverseDigest, sigAlg SignatureAlgorithm) ([]byte, error) {
 	// Use GOST signing with reverse digest
-	return priv.Sign(rand.Reader, data, nil)
+	// First, we need to hash the data with GOST hash function
+	hash := gost34112012256.New()
+	hash.Write(data)
+	hashed := hash.Sum(nil)
+	
+	// Sign the hash
+	signature, err := priv.Sign(rand.Reader, hashed, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign with GOST: %w", err)
+	}
+	
+	return signature, nil
 }
 
 func getPublicKeyAlgorithm(pub interface{}) PublicKeyAlgorithm {

@@ -64,10 +64,15 @@ func GenerateCertificate(privKey *sm2.PrivateKey, domain string, isCA bool, expi
 		Bytes: certDER,
 	})
 
-	// Encode private key
+	// Encode private key in PKCS8 format for better compatibility
+	privKeyBytes, err := sm2x509.MarshalSm2UnecryptedPrivateKey(privKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal SM2 private key: %w", err)
+	}
+
 	privKeyPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "PRIVATE KEY",
-		Bytes: privKey.D.Bytes(),
+		Bytes: privKeyBytes,
 	})
 
 	return certPEM, privKeyPEM, nil
