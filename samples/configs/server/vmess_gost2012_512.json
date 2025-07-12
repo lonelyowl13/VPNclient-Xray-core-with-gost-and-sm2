@@ -20,8 +20,8 @@
         "tlsSettings": {
           "certificates": [
             {
-              "certificateFile": "test_cert_gost2012_512.crt",
-              "keyFile": "test_cert_gost2012_512.key",
+              "certificateFile": "../certs/test_cert_gost2012_512.crt",
+              "keyFile": "../certs/test_cert_gost2012_512.key",
               "certificateType": "gost2012_512"
             }
           ]

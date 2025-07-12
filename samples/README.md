@@ -1,7 +1,8 @@
 # Примеры (samples)
 
 ## Структура
-- `certs/` — скрипты генерации тестовых сертификатов (SM2, GOST, ECDSA)
+- `make_cert/` — скрипты генерации тестовых сертификатов (SM2, GOST, ECDSA)
+- `certs/` — сгенерированные сертификаты
 - `configs/server/` — серверные конфиги VMess/VLESS
 - `configs/client/` — клиентские конфиги
 - `run/server/` — запуск сервера с нужным конфигом
@@ -11,7 +12,7 @@
 ## Использование
 ```bash
 # Генерация всех сертификатов
-cd certs && ./make_all_certs.sh
+cd make_cert && ./make_all_certs.sh
 
 # Проверка всех сертификатов
 cd scripts && ./verify_all_certs.sh

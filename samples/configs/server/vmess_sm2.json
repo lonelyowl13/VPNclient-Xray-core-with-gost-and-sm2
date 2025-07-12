@@ -20,8 +20,8 @@
         "tlsSettings": {
           "certificates": [
             {
-              "certificateFile": "test_cert_sm2.crt",
-              "keyFile": "test_cert_sm2.key",
+              "certificateFile": "../certs/test_cert_sm2.crt",
+              "keyFile": "../certs/test_cert_sm2.key",
               "certificateType": "sm2"
             }
           ]
