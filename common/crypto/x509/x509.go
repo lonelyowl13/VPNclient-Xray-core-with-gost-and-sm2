@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"fmt"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/pedroalbanese/gogost/gost3410"
 	"github.com/pedroalbanese/gogost/gost34112012256"
+	"github.com/tjfoc/gmsm/sm2"
+	"github.com/tjfoc/gmsm/sm3"
 )
 
 // SignatureAlgorithm represents the algorithm used to sign the certificate
@@ -188,6 +191,12 @@ func CreateCertificate(rand io.Reader, template, parent *Certificate, pub interf
 	case *rsa.PrivateKey:
 		sigAlg = SHA256WithRSA
 		fmt.Printf("DEBUG: Using RSA signature algorithm\n")
+	case *ecdsa.PrivateKey:
+		sigAlg = ECDSAWithSHA256
+		fmt.Printf("DEBUG: Using ECDSA signature algorithm\n")
+	case *sm2.PrivateKey:
+		sigAlg = ECDSAWithSHA256
+		fmt.Printf("DEBUG: Using SM2 signature algorithm\n")
 	case *gost3410.PrivateKey:
 		// Determine GOST algorithm based on curve
 		gostPriv := priv.(*gost3410.PrivateKey)
@@ -266,6 +275,10 @@ func MarshalPKCS8PrivateKey(key interface{}) ([]byte, error) {
 	switch k := key.(type) {
 	case *rsa.PrivateKey:
 		return marshalPKCS8PrivateKey(k)
+	case *ecdsa.PrivateKey:
+		return marshalECDSAPKCS8PrivateKey(k)
+	case *sm2.PrivateKey:
+		return marshalSM2PKCS8PrivateKey(k)
 	case *gost3410.PrivateKey:
 		return marshalGOSTPKCS8PrivateKey(k)
 	default:
@@ -383,6 +396,10 @@ func signCertificate(tbsCert []byte, priv interface{}, sigAlg SignatureAlgorithm
 	switch k := priv.(type) {
 	case *rsa.PrivateKey:
 		return signWithRSA(tbsCert, k, sigAlg)
+	case *ecdsa.PrivateKey:
+		return signWithECDSA(tbsCert, k, sigAlg)
+	case *sm2.PrivateKey:
+		return signWithSM2(tbsCert, k, sigAlg)
 	case *gost3410.PrivateKey:
 		return signWithGOST(tbsCert, k, sigAlg)
 	case *gost3410.PrivateKeyReverseDigest:
@@ -395,6 +412,32 @@ func signCertificate(tbsCert []byte, priv interface{}, sigAlg SignatureAlgorithm
 func signWithRSA(data []byte, priv *rsa.PrivateKey, sigAlg SignatureAlgorithm) ([]byte, error) {
 	// Simplified RSA signing
 	return nil, fmt.Errorf("RSA signing not implemented")
+}
+
+func signWithECDSA(data []byte, priv *ecdsa.PrivateKey, sigAlg SignatureAlgorithm) ([]byte, error) {
+	// Hash the data with SHA256 for ECDSA signing
+	hash := sha256.Sum256(data)
+	
+	// Sign the hash
+	signature, err := ecdsa.SignASN1(rand.Reader, priv, hash[:])
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign with ECDSA: %w", err)
+	}
+	
+	return signature, nil
+}
+
+func signWithSM2(data []byte, priv *sm2.PrivateKey, sigAlg SignatureAlgorithm) ([]byte, error) {
+	// Hash the data with SM3 for SM2 signing
+	hash := sm3.Sm3Sum(data)
+	
+	// Sign the hash
+	signature, err := priv.Sign(rand.Reader, hash, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign with SM2: %w", err)
+	}
+	
+	return signature, nil
 }
 
 func signWithGOST(data []byte, priv *gost3410.PrivateKey, sigAlg SignatureAlgorithm) ([]byte, error) {
@@ -423,6 +466,10 @@ func getPublicKeyAlgorithm(pub interface{}) PublicKeyAlgorithm {
 	switch pub.(type) {
 	case *rsa.PublicKey:
 		return RSA
+	case *ecdsa.PublicKey:
+		return ECDSA
+	case *sm2.PublicKey:
+		return ECDSA
 	case *gost3410.PublicKey:
 		return GOST
 	default:
@@ -433,6 +480,52 @@ func getPublicKeyAlgorithm(pub interface{}) PublicKeyAlgorithm {
 func marshalPKCS8PrivateKey(key *rsa.PrivateKey) ([]byte, error) {
 	// Simplified PKCS8 marshaling for RSA
 	return nil, fmt.Errorf("RSA PKCS8 marshaling not implemented")
+}
+
+func marshalECDSAPKCS8PrivateKey(key *ecdsa.PrivateKey) ([]byte, error) {
+	// Create PKCS8 structure for ECDSA private key
+	pkcs8 := struct {
+		Version    int
+		Algorithm  pkix.AlgorithmIdentifier
+		PrivateKey []byte
+	}{
+		Version: 0,
+		Algorithm: pkix.AlgorithmIdentifier{
+			Algorithm: asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1}, // EC algorithm
+		},
+		PrivateKey: key.D.Bytes(),
+	}
+
+	// Encode to ASN.1 DER
+	der, err := asn1.Marshal(pkcs8)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal ECDSA PKCS8 private key: %w", err)
+	}
+
+	return der, nil
+}
+
+func marshalSM2PKCS8PrivateKey(key *sm2.PrivateKey) ([]byte, error) {
+	// Create PKCS8 structure for SM2 private key
+	pkcs8 := struct {
+		Version    int
+		Algorithm  pkix.AlgorithmIdentifier
+		PrivateKey []byte
+	}{
+		Version: 0,
+		Algorithm: pkix.AlgorithmIdentifier{
+			Algorithm: asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1}, // EC algorithm (SM2 uses EC format)
+		},
+		PrivateKey: key.D.Bytes(),
+	}
+
+	// Encode to ASN.1 DER
+	der, err := asn1.Marshal(pkcs8)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal SM2 PKCS8 private key: %w", err)
+	}
+
+	return der, nil
 }
 
 func marshalGOSTPKCS8PrivateKey(key *gost3410.PrivateKey) ([]byte, error) {
