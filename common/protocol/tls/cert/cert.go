@@ -216,7 +216,6 @@ func GenerateGOST2012_256(parent *Certificate, opts ...SM2Option) (*Certificate,
 
 	certPEM, keyPEM, err := gost.GenerateGOSTSelfSignedCert(
 		gost3410.CurveIdtc26gost34102012256paramSetA(),
-		gost.GOST256,
 		commonName,
 		expireDays,
 	)
@@ -263,7 +262,6 @@ func GenerateGOST2012_512(parent *Certificate, opts ...SM2Option) (*Certificate,
 
 	certPEM, keyPEM, err := gost.GenerateGOSTSelfSignedCert(
 		gost3410.CurveIdtc26gost34102012512paramSetA(),
-		gost.GOST512,
 		commonName,
 		expireDays,
 	)
@@ -294,7 +292,7 @@ func GenerateSM2(parent *Certificate, opts ...SM2Option) (*Certificate, error) {
 			CommonName:   "",
 		},
 		NotBefore:             time.Now().Add(time.Hour * -1),
-		NotAfter:              time.Now().Add(time.Hour),
+		NotAfter:              time.Now().Add(time.Hour * 24 * 365), // 1 year default
 		KeyUsage:              sm2x509.KeyUsageKeyEncipherment | sm2x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []sm2x509.ExtKeyUsage{sm2x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,

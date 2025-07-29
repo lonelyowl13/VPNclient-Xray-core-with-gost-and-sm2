@@ -14,6 +14,8 @@ fi
 
 echo "✅ Файлы сертификата найдены"
 
+#openssl x509 -in ../certs/test_cert_gost2012_256.crt -text -noout
+
 # Проверка формата сертификата
 if openssl x509 -in ../certs/test_cert_gost2012_256.crt -text -noout > /dev/null 2>&1; then
     echo "✅ Формат сертификата корректный"
@@ -22,7 +24,7 @@ else
     exit 1
 fi
 
-openssl x509 -in ../certs/test_cert_gost2012_256.crt -text -noout
+#openssl x509 -in ../certs/test_cert_gost2012_256.crt -text -noout
 # Проверка алгоритма
 ALGORITHM=$(openssl x509 -in ../certs/test_cert_gost2012_256.crt -text -noout | grep "Public Key Algorithm" | head -1)
 echo "📋 Алгоритм: $ALGORITHM"
