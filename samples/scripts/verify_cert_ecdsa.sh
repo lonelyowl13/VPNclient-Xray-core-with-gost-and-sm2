@@ -22,7 +22,6 @@ else
     exit 1
 fi
 
-#openssl x509 -in ../certs/test_cert_ecdsa.crt -text -noout
 # Проверка алгоритма
 ALGORITHM=$(openssl x509 -in ../certs/test_cert_ecdsa.crt -text -noout | grep "Public Key Algorithm" | head -1)
 echo "📋 Алгоритм: $ALGORITHM"
