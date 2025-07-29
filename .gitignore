@@ -44,3 +44,6 @@ errorgen
 # Certificates
 *.crt
 *.key
+
+# my custom openssl for testing 
+openssl111.sh
