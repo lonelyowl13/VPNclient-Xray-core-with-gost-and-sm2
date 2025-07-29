@@ -5,14 +5,11 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
-	"time"
-	"crypto/x509/pkix"
 
 	"github.com/pedroalbanese/gogost/gost3410"
 	"github.com/pedroalbanese/gogost/gost34112012256"
 	"github.com/pedroalbanese/gogost/gost34112012512"
 	"github.com/tjfoc/gmsm/sm2"
-	sm2x509 "github.com/tjfoc/gmsm/x509"
 )
 
 // GOSTCurve represents GOST curve types
@@ -79,75 +76,30 @@ func GenerateKeyPair(curve GOSTCurve) (*GOSTPrivateKey, error) {
 
 // GenerateCertificate generates a GOST certificate
 func GenerateCertificate(privKey *GOSTPrivateKey, domain string, isCA bool, expireHours int) ([]byte, []byte, error) {
-	// Create certificate template
-	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	// Get the appropriate GOST curve
+	gostCurve := getCurve(privKey.Curve)
+	if gostCurve == nil {
+		return nil, nil, fmt.Errorf("unsupported GOST curve: %s", privKey.Curve.String())
+	}
+
+	// Use the working manual ASN.1 GOST certificate generation function
+	expireDays := expireHours / 24
+	if expireDays < 1 {
+		expireDays = 1
+	}
+
+	// Use domain as common name, leave other fields empty if not provided
+	organization := "Xray GOST Certificate"
+	organizationalUnit := ""
+	locality := ""
+	state := ""
+
+	certPEM, keyPEM, err := GenerateManualASN1GOSTCertificate(gostCurve, domain, expireDays, organization, organizationalUnit, locality, state)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to generate serial number: %w", err)
+		return nil, nil, fmt.Errorf("failed to generate GOST certificate: %w", err)
 	}
 
-	notBefore := time.Now()
-	notAfter := notBefore.Add(time.Duration(expireHours) * time.Hour)
-
-	// For now, we'll use SM2 certificate template since GOST certificates need special handling
-	template := &sm2x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject: pkix.Name{
-			Organization: []string{"Xray GOST Certificate"},
-			CommonName:   domain,
-		},
-		NotBefore:             notBefore,
-		NotAfter:              notAfter,
-		KeyUsage:              sm2x509.KeyUsageKeyEncipherment | sm2x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []sm2x509.ExtKeyUsage{sm2x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-	}
-
-	if isCA {
-		template.IsCA = true
-		template.KeyUsage |= sm2x509.KeyUsageCertSign
-	} else {
-		template.DNSNames = []string{domain}
-	}
-
-	// Get GOST public key
-	gostPubKey, err := privKey.PrivateKey.PublicKey()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get GOST public key: %w", err)
-	}
-
-	// Convert GOST public key to SM2 format for certificate creation
-	// This is a temporary workaround until we implement proper GOST certificate handling
-	sm2PubKey := &sm2.PublicKey{
-		X: gostPubKey.X,
-		Y: gostPubKey.Y,
-	}
-
-	// Create a temporary SM2 private key for certificate signing
-	tempSM2Key, err := sm2.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create temporary SM2 key for certificate: %w", err)
-	}
-
-	// Create certificate using SM2 (temporary workaround)
-	certDER, err := sm2x509.CreateCertificate(template, template, sm2PubKey, tempSM2Key)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create GOST certificate: %w", err)
-	}
-
-	// Encode certificate
-	certPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: certDER,
-	})
-
-	// Encode GOST private key
-	privKeyBytes := privKey.PrivateKey.Raw()
-	privKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "GOST PRIVATE KEY",
-		Bytes: privKeyBytes,
-	})
-
-	return certPEM, privKeyPEM, nil
+	return certPEM, keyPEM, nil
 }
 
 // ParsePrivateKey parses a GOST private key from PEM format

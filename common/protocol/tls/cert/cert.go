@@ -185,6 +185,9 @@ func GenerateGOST2012_256(parent *Certificate, opts ...SM2Option) (*Certificate,
 	var (
 		commonName string
 		organization string
+		organizationalUnit string
+		locality string
+		state string
 		expireDays int = 365
 	)
 	
@@ -199,6 +202,15 @@ func GenerateGOST2012_256(parent *Certificate, opts ...SM2Option) (*Certificate,
 		if len(tmp.Subject.Organization) > 0 {
 			organization = tmp.Subject.Organization[0]
 		}
+		if len(tmp.Subject.OrganizationalUnit) > 0 {
+			organizationalUnit = tmp.Subject.OrganizationalUnit[0]
+		}
+		if len(tmp.Subject.Locality) > 0 {
+			locality = tmp.Subject.Locality[0]
+		}
+		if len(tmp.Subject.Province) > 0 {
+			state = tmp.Subject.Province[0]
+		}
 		if !tmp.NotAfter.IsZero() {
 			days := int(tmp.NotAfter.Sub(time.Now()).Hours() / 24)
 			if days > 0 {
@@ -210,14 +222,17 @@ func GenerateGOST2012_256(parent *Certificate, opts ...SM2Option) (*Certificate,
 	if commonName == "" {
 		commonName = "GOST2012-256"
 	}
-	if organization == "" {
-		organization = "Test Organization"
-	}
+	// Don't set default values for organization, organizationalUnit, locality, state
+	// They will remain empty if not provided
 
 	certPEM, keyPEM, err := gost.GenerateGOSTSelfSignedCert(
 		gost3410.CurveIdtc26gost34102012256paramSetA(),
 		commonName,
 		expireDays,
+		organization,
+		organizationalUnit,
+		locality,
+		state,
 	)
 	if err != nil {
 		return nil, errors.New("failed to generate GOST 2012-256 certificate").Base(err)
@@ -231,6 +246,9 @@ func GenerateGOST2012_512(parent *Certificate, opts ...SM2Option) (*Certificate,
 	var (
 		commonName string
 		organization string
+		organizationalUnit string
+		locality string
+		state string
 		expireDays int = 365
 	)
 	
@@ -245,6 +263,15 @@ func GenerateGOST2012_512(parent *Certificate, opts ...SM2Option) (*Certificate,
 		if len(tmp.Subject.Organization) > 0 {
 			organization = tmp.Subject.Organization[0]
 		}
+		if len(tmp.Subject.OrganizationalUnit) > 0 {
+			organizationalUnit = tmp.Subject.OrganizationalUnit[0]
+		}
+		if len(tmp.Subject.Locality) > 0 {
+			locality = tmp.Subject.Locality[0]
+		}
+		if len(tmp.Subject.Province) > 0 {
+			state = tmp.Subject.Province[0]
+		}
 		if !tmp.NotAfter.IsZero() {
 			days := int(tmp.NotAfter.Sub(time.Now()).Hours() / 24)
 			if days > 0 {
@@ -256,14 +283,17 @@ func GenerateGOST2012_512(parent *Certificate, opts ...SM2Option) (*Certificate,
 	if commonName == "" {
 		commonName = "GOST2012-512"
 	}
-	if organization == "" {
-		organization = "Test Organization"
-	}
+	// Don't set default values for organization, organizationalUnit, locality, state
+	// They will remain empty if not provided
 
 	certPEM, keyPEM, err := gost.GenerateGOSTSelfSignedCert(
 		gost3410.CurveIdtc26gost34102012512paramSetA(),
 		commonName,
 		expireDays,
+		organization,
+		organizationalUnit,
+		locality,
+		state,
 	)
 	if err != nil {
 		return nil, errors.New("failed to generate GOST 2012-512 certificate").Base(err)

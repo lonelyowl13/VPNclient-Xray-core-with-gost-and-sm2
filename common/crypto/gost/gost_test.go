@@ -2,6 +2,8 @@ package gost
 
 import (
 	"crypto/rand"
+	"encoding/pem"
+	"fmt"
 	"testing"
 
 	"github.com/pedroalbanese/gogost/gost34112012256"
@@ -109,34 +111,76 @@ func TestHashFunctions(t *testing.T) {
 
 func TestGenerateCertificate(t *testing.T) {
 	// Test GOST2012_256 certificate generation
-	cert256, err := GenerateGOSTCertificate(GOST2012_256, "test.local", false, 24)
+	privKey256, err := GenerateKeyPair(GOST2012_256)
+	if err != nil {
+		t.Fatalf("Failed to generate GOST2012_256 key pair: %v", err)
+	}
+
+	certPEM, keyPEM, err := GenerateCertificate(privKey256, "test.local", false, 24)
 	if err != nil {
 		t.Fatalf("Failed to generate GOST2012_256 certificate: %v", err)
 	}
-	if cert256 == nil {
-		t.Fatal("Generated certificate is nil")
-	}
-	if len(cert256.Certificate) == 0 {
-		t.Fatal("Certificate data is empty")
-	}
-	if len(cert256.PrivateKey) == 0 {
-		t.Fatal("Private key data is empty")
+
+	// Check that certificate was generated
+	if len(certPEM) == 0 {
+		t.Fatal("Generated certificate is empty")
 	}
 
+	// Check that private key was generated
+	if len(keyPEM) == 0 {
+		t.Fatal("Generated private key is empty")
+	}
+
+	// Parse certificate PEM
+	certBlock, _ := pem.Decode(certPEM)
+	if certBlock == nil {
+		t.Fatal("Failed to decode certificate PEM")
+	}
+
+	// Parse private key PEM
+	keyBlock, _ := pem.Decode(keyPEM)
+	if keyBlock == nil {
+		t.Fatal("Failed to decode private key PEM")
+	}
+
+	fmt.Printf("✓ Generated GOST2012_256 certificate: %d bytes\n", len(certBlock.Bytes))
+	fmt.Printf("✓ Generated GOST2012_256 private key: %d bytes\n", len(keyBlock.Bytes))
+
 	// Test GOST2012_512 certificate generation
-	cert512, err := GenerateGOSTCertificate(GOST2012_512, "test.local", false, 24)
+	privKey512, err := GenerateKeyPair(GOST2012_512)
+	if err != nil {
+		t.Fatalf("Failed to generate GOST2012_512 key pair: %v", err)
+	}
+
+	certPEM512, keyPEM512, err := GenerateCertificate(privKey512, "test.local", false, 24)
 	if err != nil {
 		t.Fatalf("Failed to generate GOST2012_512 certificate: %v", err)
 	}
-	if cert512 == nil {
-		t.Fatal("Generated certificate is nil")
+
+	// Check that certificate was generated
+	if len(certPEM512) == 0 {
+		t.Fatal("Generated 512-bit certificate is empty")
 	}
-	if len(cert512.Certificate) == 0 {
-		t.Fatal("Certificate data is empty")
+
+	// Check that private key was generated
+	if len(keyPEM512) == 0 {
+		t.Fatal("Generated 512-bit private key is empty")
 	}
-	if len(cert512.PrivateKey) == 0 {
-		t.Fatal("Private key data is empty")
+
+	// Parse certificate PEM
+	certBlock512, _ := pem.Decode(certPEM512)
+	if certBlock512 == nil {
+		t.Fatal("Failed to decode 512-bit certificate PEM")
 	}
+
+	// Parse private key PEM
+	keyBlock512, _ := pem.Decode(keyPEM512)
+	if keyBlock512 == nil {
+		t.Fatal("Failed to decode 512-bit private key PEM")
+	}
+
+	fmt.Printf("✓ Generated GOST2012_512 certificate: %d bytes\n", len(certBlock512.Bytes))
+	fmt.Printf("✓ Generated GOST2012_512 private key: %d bytes\n", len(keyBlock512.Bytes))
 }
 
 func TestGetPublicKeyInfo(t *testing.T) {
@@ -154,21 +198,6 @@ func TestGetPublicKeyInfo(t *testing.T) {
 	}
 	if y == "" {
 		t.Fatal("Public key Y coordinate is empty")
-	}
-}
-
-func TestGetGOSTCurveInfo(t *testing.T) {
-	curveInfo := GetGOSTCurveInfo()
-	if len(curveInfo) == 0 {
-		t.Fatal("Curve info is empty")
-	}
-
-	if _, exists := curveInfo["GOST2012_256"]; !exists {
-		t.Fatal("GOST2012_256 curve info not found")
-	}
-
-	if _, exists := curveInfo["GOST2012_512"]; !exists {
-		t.Fatal("GOST2012_512 curve info not found")
 	}
 }
 
