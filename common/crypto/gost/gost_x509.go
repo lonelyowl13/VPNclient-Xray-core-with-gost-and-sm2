@@ -42,12 +42,29 @@ func GenerateGOSTSelfSignedCert(curve *gost3410.Curve, sigAlg x509.SignatureAlgo
 	notBefore := time.Now()
 	notAfter := notBefore.Add(time.Duration(expireDays) * 24 * time.Hour)
 	serial := big.NewInt(time.Now().UnixNano())
+	
+	// Create certificate template with proper GOST structure
 	template := x509.Certificate{
 		SerialNumber:       serial,
 		NotBefore:          notBefore,
 		NotAfter:           notAfter,
 		SignatureAlgorithm: sigAlg,
-		Subject:            pkix.Name{CommonName: cn},
+		Subject:            pkix.Name{
+			Country:      []string{"RU"},
+			Province:     []string{"Krasnoyarsk"},
+			Locality:     []string{"Krasnoyarsk"},
+			Organization: []string{"Dolboyob Research"},
+			OrganizationalUnit: []string{"testing"},
+			CommonName:   cn,
+		},
+		Issuer: pkix.Name{
+			Country:      []string{"RU"},
+			Province:     []string{"Krasnoyarsk"},
+			Locality:     []string{"Krasnoyarsk"},
+			Organization: []string{"Dolboyob Research"},
+			OrganizationalUnit: []string{"testing"},
+			CommonName:   cn,
+		},
 		KeyUsage:           x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		BasicConstraintsValid: true,
 		IsCA: false,
