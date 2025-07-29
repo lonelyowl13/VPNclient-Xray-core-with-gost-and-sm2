@@ -232,16 +232,27 @@ func GenerateGOST2012_256(parent *Certificate, opts ...SM2Option) (*Certificate,
 
 // GenerateGOST2012_512 generates a certificate using GOST 2012-512 algorithm
 func GenerateGOST2012_512(parent *Certificate, opts ...SM2Option) (*Certificate, error) {
+	// Extract parameters from options
 	var (
 		commonName string
+		organization string
+		dnsNames []string
 		expireDays int = 365
 	)
+	
 	for _, opt := range opts {
-		optFunc := opt
+		// Create a temporary certificate to extract options
 		tmp := &sm2x509.Certificate{}
-		optFunc(tmp)
+		opt(tmp)
+		
 		if tmp.Subject.CommonName != "" {
 			commonName = tmp.Subject.CommonName
+		}
+		if len(tmp.Subject.Organization) > 0 {
+			organization = tmp.Subject.Organization[0]
+		}
+		if len(tmp.DNSNames) > 0 {
+			dnsNames = tmp.DNSNames
 		}
 		if !tmp.NotAfter.IsZero() {
 			days := int(tmp.NotAfter.Sub(time.Now()).Hours() / 24)
@@ -250,8 +261,12 @@ func GenerateGOST2012_512(parent *Certificate, opts ...SM2Option) (*Certificate,
 			}
 		}
 	}
+	
 	if commonName == "" {
 		commonName = "GOST2012-512"
+	}
+	if organization == "" {
+		organization = "Test Organization"
 	}
 
 	certPEM, keyPEM, err := gost.GenerateGOSTSelfSignedCert(
