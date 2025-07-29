@@ -323,25 +323,19 @@ func createTBSCertificate(template *Certificate, sigAlg SignatureAlgorithm) ([]b
 	var publicKeyBytes []byte
 	if template.PublicKey != nil {
 		if gostPub, ok := template.PublicKey.(*gost3410.PublicKey); ok {
-			// Encode GOST public key as X and Y coordinates
+			// Encode GOST public key according to GOST R 34.10-2012 standard
+			// The public key should be encoded as a BIT STRING containing the raw public key
 			xBytes := gostPub.X.Bytes()
 			yBytes := gostPub.Y.Bytes()
 			
-			// Create GOST public key structure
-			gostPubKey := struct {
-				X []byte
-				Y []byte
-			}{
-				X: xBytes,
-				Y: yBytes,
-			}
+			// Combine X and Y coordinates into a single byte array
+			// GOST public key format: 04 || X || Y (uncompressed format)
+			pubKeyRaw := make([]byte, 1+len(xBytes)+len(yBytes))
+			pubKeyRaw[0] = 0x04 // Uncompressed point indicator
+			copy(pubKeyRaw[1:], xBytes)
+			copy(pubKeyRaw[1+len(xBytes):], yBytes)
 			
-			// Marshal to ASN.1 DER
-			pubKeyDER, err := asn1.Marshal(gostPubKey)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal GOST public key: %w", err)
-			}
-			publicKeyBytes = pubKeyDER
+			publicKeyBytes = pubKeyRaw
 		}
 	}
 	
