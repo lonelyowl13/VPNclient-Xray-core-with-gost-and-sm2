@@ -319,6 +319,32 @@ func createTBSCertificate(template *Certificate, sigAlg SignatureAlgorithm) ([]b
 		publicKeyOID = asn1.ObjectIdentifier{1, 2, 643, 7, 1, 1, 1, 1}
 	}
 	
+	// Encode public key properly for GOST
+	var publicKeyBytes []byte
+	if template.PublicKey != nil {
+		if gostPub, ok := template.PublicKey.(*gost3410.PublicKey); ok {
+			// Encode GOST public key as X and Y coordinates
+			xBytes := gostPub.X.Bytes()
+			yBytes := gostPub.Y.Bytes()
+			
+			// Create GOST public key structure
+			gostPubKey := struct {
+				X []byte
+				Y []byte
+			}{
+				X: xBytes,
+				Y: yBytes,
+			}
+			
+			// Marshal to ASN.1 DER
+			pubKeyDER, err := asn1.Marshal(gostPubKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal GOST public key: %w", err)
+			}
+			publicKeyBytes = pubKeyDER
+		}
+	}
+	
 	// Create the basic certificate structure
 	tbs := struct {
 		Version            int `asn1:"optional,explicit,default:0,tag:0"`
@@ -358,8 +384,8 @@ func createTBSCertificate(template *Certificate, sigAlg SignatureAlgorithm) ([]b
 				Algorithm: publicKeyOID,
 			},
 			PublicKey: asn1.BitString{
-				Bytes:     []byte{}, // Placeholder - will be filled by actual public key
-				BitLength: 0,
+				Bytes:     publicKeyBytes,
+				BitLength: len(publicKeyBytes) * 8,
 			},
 		},
 		Extensions: template.Extensions,
