@@ -440,6 +440,18 @@ func marshalPKCS8PrivateKey(key *rsa.PrivateKey) ([]byte, error) {
 }
 
 func marshalGOSTPKCS8PrivateKey(key *gost3410.PrivateKey) ([]byte, error) {
+	// Determine the correct OID based on the curve size
+	var algorithmOID asn1.ObjectIdentifier
+	rawKey := key.Raw()
+	
+	if len(rawKey) == 32 {
+		// GOST R 34.10-2012 256-bit
+		algorithmOID = asn1.ObjectIdentifier{1, 2, 643, 7, 1, 1, 1, 1}
+	} else {
+		// GOST R 34.10-2012 512-bit
+		algorithmOID = asn1.ObjectIdentifier{1, 2, 643, 7, 1, 1, 1, 2}
+	}
+	
 	// Create PKCS8 structure for GOST private key
 	pkcs8 := struct {
 		Version    int
@@ -448,9 +460,9 @@ func marshalGOSTPKCS8PrivateKey(key *gost3410.PrivateKey) ([]byte, error) {
 	}{
 		Version: 0,
 		Algorithm: pkix.AlgorithmIdentifier{
-			Algorithm: asn1.ObjectIdentifier{1, 2, 643, 7, 1, 1, 1, 1}, // GOST R 34.10-2012 256-bit
+			Algorithm: algorithmOID,
 		},
-		PrivateKey: key.Raw(),
+		PrivateKey: rawKey,
 	}
 
 	// Encode to ASN.1 DER
