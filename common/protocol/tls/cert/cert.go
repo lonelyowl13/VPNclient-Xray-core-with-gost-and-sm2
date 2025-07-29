@@ -185,7 +185,6 @@ func GenerateGOST2012_256(parent *Certificate, opts ...SM2Option) (*Certificate,
 	var (
 		commonName string
 		organization string
-		dnsNames []string
 		expireDays int = 365
 	)
 	
@@ -199,9 +198,6 @@ func GenerateGOST2012_256(parent *Certificate, opts ...SM2Option) (*Certificate,
 		}
 		if len(tmp.Subject.Organization) > 0 {
 			organization = tmp.Subject.Organization[0]
-		}
-		if len(tmp.DNSNames) > 0 {
-			dnsNames = tmp.DNSNames
 		}
 		if !tmp.NotAfter.IsZero() {
 			days := int(tmp.NotAfter.Sub(time.Now()).Hours() / 24)
@@ -236,7 +232,6 @@ func GenerateGOST2012_512(parent *Certificate, opts ...SM2Option) (*Certificate,
 	var (
 		commonName string
 		organization string
-		dnsNames []string
 		expireDays int = 365
 	)
 	
@@ -250,9 +245,6 @@ func GenerateGOST2012_512(parent *Certificate, opts ...SM2Option) (*Certificate,
 		}
 		if len(tmp.Subject.Organization) > 0 {
 			organization = tmp.Subject.Organization[0]
-		}
-		if len(tmp.DNSNames) > 0 {
-			dnsNames = tmp.DNSNames
 		}
 		if !tmp.NotAfter.IsZero() {
 			days := int(tmp.NotAfter.Sub(time.Now()).Hours() / 24)
